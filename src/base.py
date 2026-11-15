@@ -38,18 +38,25 @@ def residual(model, x,wind_field=c):
     return wind_field * gnorm - (wind(x) * g).sum(1, keepdim=True) - 1.0   # c|∇V| - w·∇V - 1
 
 
+def outputs_simple_trained_model(): 
+    
+    """
+    Returns a toy example model trained in a single case with the constant univariate wind
+    Outputs: model, loss_curve
+    
+    """
 
+    model_simple = VNet()
+    opt = torch.optim.Adam(model_simple.parameters(), lr=1e-3)
 
-if __name__ == "main":
+    loss_curve = []
 
-    model = VNet()
-    opt = torch.optim.Adam(model.parameters(), lr=1e-3)
-
-    for it in range(5000):
+    for _ in range(5000):
         x = torch.rand(2048, 2)               # collocation points in [0,1]^2
-        loss = (residual(model, x) ** 2).mean()
+        loss = (residual(model_simple, x) ** 2).mean()
         opt.zero_grad()
         loss.backward() 
         opt.step()
-        if it % 500 == 0:
-            print(it, loss.item())
+        loss_curve.append(loss.item())
+
+        return model_simple , loss_curve
