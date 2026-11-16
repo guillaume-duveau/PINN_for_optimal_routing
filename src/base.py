@@ -1,11 +1,22 @@
 import torch, torch.nn as nn
+import numpy as np
 
-c = 1.0                    # toy example airspeed (normalized units)
+airspeed = 1.0                    # toy example airspeed (normalized units)
 goal = torch.tensor([[1.0, 0.5]])
 
-def wind(x):                              # toy jet stream along +x, must satisfy |w| < c
+def wind_jet_along_x(x,rotation_angle=0): 
+
+    """
+    Generated a jet stream rotated by the angle rotation_angle, with a velocity 
+    following a normal distribution 
+    """  
+    
     jet = 0.5 * torch.exp(-((x[:, 1:2] - 0.5) / 0.1) ** 2)
-    return torch.cat([jet, torch.zeros_like(jet)], dim=1)
+    rotation_angle = rotation_angle/180*np.pi
+    mat_rot = np.array([[np.cos(rotation_angle),-np.sin(rotation_angle)],[np.sin(rotation_angle),np.cos(rotation_angle)]])   
+    rotated_jet = np.dot(torch.cat([jet, torch.zeros_like(jet)], dim=1),mat_rot)
+    
+    return rotated_jet
 
 class VNet(nn.Module):
     """V(x) = |x - goal| * softplus(MLP(x)): enforces V(goal)=0 and V>=0 by construction."""
@@ -32,10 +43,23 @@ def grad_V(model, x):
     g, = torch.autograd.grad(V.sum(), x, create_graph=True)
     return x, V, g
 
-def residual(model, x,wind_field=c):
+def residual(model, x):
     x, V, g = grad_V(model, x)
     gnorm = torch.sqrt((g ** 2).sum(1, keepdim=True) + 1e-12)
-    return wind_field * gnorm - (wind(x) * g).sum(1, keepdim=True) - 1.0   # c|∇V| - w·∇V - 1
+    return airspeed * gnorm - (wind(x) * g).sum(1, keepdim=True) - 1.0   # c|∇V| - w·∇V - 1
+
+
+def route(model, x0, dt=1e-2, steps=2000, tol=2e-2):
+    x = torch.tensor([x0], dtype=torch.float32)
+    path = [x.clone()]
+    for _ in range(steps):
+        xg, _, g = grad_V(model, x)
+        u = -g / (g.norm(dim=1, keepdim=True) + 1e-12)
+        x = (xg + dt * (airspeed * u + wind(xg))).detach()
+        path.append(x.clone())
+        if (x - goal).norm() < tol:
+            break
+    return torch.cat(path).numpy()
 
 
 def outputs_simple_trained_model(): 
@@ -60,3 +84,5 @@ def outputs_simple_trained_model():
         loss_curve.append(loss.item())
 
         return model_simple , loss_curve
+
+
